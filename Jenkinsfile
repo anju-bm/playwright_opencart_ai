@@ -1,5 +1,5 @@
-// Jenkinsfile.windows
-// Declarative Jenkins pipeline for Windows build agents
+// Jenkinsfile.mac
+// Declarative Jenkins pipeline for macOS build agents
 
 
 /*
@@ -15,107 +15,151 @@ Pipeline Stages:
 */
 
 pipeline {
-  agent any
-  tools {
-    git 'Git'
-  }
-  options { timestamps() }
-  parameters {
-    choice(
-      name: 'TEST_SUITE',
-      choices: ['test:e2e', 'test:master', 'test:sanity', 'test:regression', 'test:api', 'test:web', 'test:datadriven'],
-      description: 'Select the test suite to run'
-    )
-    choice(
-      name: 'BROWSER',
-      choices: ['chromium', 'firefox', 'webkit'],
-      description: 'Select the browser for tests'
-    )
-    choice(
-      name: 'MODE',
-      choices: ['headless', 'headed'],
-      description: 'Run tests in headless or headed mode'
-    )
-  }
-  environment {
-    NODE_ENV = 'test'
-    CI = '1'
-  }
-  stages {
-    stage('🔄 Checkout') {
-      steps {
-        checkout scm
-      }
+    agent any
+
+    tools {
+        nodejs 'NodeJS'
     }
-    stage('📦 Install Dependencies') {
-      steps {
-         powershell 'npm ci'
-      }
+
+    options {
+        timestamps()
     }
-    stage('🤖 Install Playwright Browsers & Dependencies') {
-      steps {
-        powershell 'npx playwright install --with-deps'
-        powershell 'Copy-Item .env.example .env -ErrorAction SilentlyContinue'
-      }
+
+    parameters {
+        choice(
+            name: 'TEST_SUITE',
+            choices: [
+                'test:e2e',
+                'test:master',
+                'test:sanity',
+                'test:regression',
+                'test:api',
+                'test:web',
+                'test:datadriven'
+            ],
+            description: 'Select the test suite to run'
+        )
+
+        choice(
+            name: 'BROWSER',
+            choices: ['chromium', 'firefox', 'webkit'],
+            description: 'Select the browser for tests'
+        )
+
+        choice(
+            name: 'MODE',
+            choices: ['headless', 'headed'],
+            description: 'Run tests in headless or headed mode'
+        )
     }
-    
-    stage('▶️ Run Playwright Tests') {
-      steps {
-        script {
-          def suite = params.TEST_SUITE
-          def browserFlag = "--project=${params.BROWSER}"
-          def modeFlag = params.MODE == 'headed' ? '--headed' : ''
-          powershell "npm run ${suite} -- ${browserFlag} ${modeFlag}"
+
+    environment {
+        NODE_ENV = 'test'
+        CI = '1'
+    }
+
+    stages {
+
+        stage('🔄 Checkout') {
+            steps {
+                checkout scm
+            }
         }
-      }
+
+        stage('📦 Install Dependencies') {
+            steps {
+                sh 'npm ci'
+            }
+        }
+
+        stage('🤖 Install Playwright Browsers & Dependencies') {
+            steps {
+                sh 'npx playwright install'
+
+                sh '''
+                    if [ ! -f .env ] && [ -f .env.example ]; then
+                        cp .env.example .env
+                    fi
+                '''
+            }
+        }
+
+        stage('▶️ Run Playwright Tests') {
+            steps {
+                script {
+                    def suite = params.TEST_SUITE
+                    def browserFlag = "--project=${params.BROWSER}"
+                    def modeFlag = params.MODE == 'headed' ? '--headed' : ''
+
+                    sh "npm run ${suite} -- ${browserFlag} ${modeFlag}"
+                }
+            }
+        }
     }
-  }
-  post {
-    always {
-      archiveArtifacts artifacts: 'reports/**,custom-report/**,allure-results/**', allowEmptyArchive: true
-      junit testResults: 'reports/results.xml', allowEmptyResults: true
-      allure includeProperties: false, results: [[path: 'allure-results']]
-      publishHTML([
-        allowMissing: true,
-        alwaysLinkToLastBuild: true,
-        keepAll: true,
-        reportDir: 'reports',
-        reportFiles: 'index.html',
-        reportName: 'Playwright HTML Report'
-      ])
-      publishHTML([
-        allowMissing: true,
-        alwaysLinkToLastBuild: true,
-        keepAll: true,
-        reportDir: 'custom-report',
-        reportFiles: '*.html',
-        reportName: 'Custom Test Report'
-      ])
-      emailext(
-        subject: "Jenkins Build: ${env.JOB_NAME} #${env.BUILD_NUMBER} - ${currentBuild.currentResult}",
-        body: """
-            <h2>Playwright Test Execution Report</h2>
-            <p><b>Job:</b> ${env.JOB_NAME}</p>
-            <p><b>Build:</b> #${env.BUILD_NUMBER}</p>
-            <p><b>Status:</b> ${currentBuild.currentResult}</p>
-            <p><b>Test Suite:</b> ${params.TEST_SUITE}</p>
-            <p><b>Browser:</b> ${params.BROWSER}</p>
-            <p>
-              <a href="${env.BUILD_URL}">Open Jenkins Build</a> |
-              <a href="${env.BUILD_URL}Playwright_20HTML_20Report">Open Playwright HTML Report</a> |
-              <a href="${env.BUILD_URL}Custom_20Test_20Report">Open Custom Report</a>
-            </p>
-        """,
-        to: "anjubm.official@gmail.com, shravanhd.official@gmail.com", //Replace with the recipient's email address
-        from: "anjubm.official@gmail.com", //Replace with the sender's email address
-        replyTo: "anjubm.official@gmail.com",  //Replace with the recipient's email address
-        mimeType: "text/html" //Defines the format of the email body. text/html allows HTML formatting (tables, colors, bold text, links, etc.).
-      )
+
+    post {
+
+        always {
+            archiveArtifacts(
+                artifacts: 'reports/**,custom-report/**,allure-results/**',
+                allowEmptyArchive: true
+            )
+
+            junit(
+                testResults: 'reports/results.xml',
+                allowEmptyResults: true
+            )
+
+            allure(
+                includeProperties: false,
+                results: [[path: 'allure-results']]
+            )
+
+            publishHTML([
+                allowMissing: true,
+                alwaysLinkToLastBuild: true,
+                keepAll: true,
+                reportDir: 'reports',
+                reportFiles: 'index.html',
+                reportName: 'Playwright HTML Report'
+            ])
+
+            publishHTML([
+                allowMissing: true,
+                alwaysLinkToLastBuild: true,
+                keepAll: true,
+                reportDir: 'custom-report',
+                reportFiles: '*.html',
+                reportName: 'Custom Test Report'
+            ])
+
+            emailext(
+                subject: "Jenkins Build: ${env.JOB_NAME} #${env.BUILD_NUMBER} - ${currentBuild.currentResult}",
+
+                body: """
+                    <h2>Playwright Test Execution Report</h2>
+                    <p><b>Job:</b> ${env.JOB_NAME}</p>
+                    <p><b>Build:</b> #${env.BUILD_NUMBER}</p>
+                    <p><b>Status:</b> ${currentBuild.currentResult}</p>
+                    <p><b>Test Suite:</b> ${params.TEST_SUITE}</p>
+                    <p><b>Browser:</b> ${params.BROWSER}</p>
+                    <p><b>Mode:</b> ${params.MODE}</p>
+                    <p>
+                        <a href="${env.BUILD_URL}">Open Jenkins Build</a> |
+                        <a href="${env.BUILD_URL}Playwright_20HTML_20Report">Open Playwright HTML Report</a> |
+                        <a href="${env.BUILD_URL}Custom_20Test_20Report">Open Custom Report</a>
+                    </p>
+                """,
+
+                to: "anjubm.official@gmail.com, shravanhd.official@gmail.com",
+                from: "anjubm.official@gmail.com",
+                replyTo: "anjubm.official@gmail.com",
+                mimeType: "text/html"
+            )
+        }
+
+        success {
+            sh 'rm -rf allure-results'
+        }
     }
-    success {
-      script {
-        powershell 'Remove-Item -Recurse -Force allure-results'
-      }
-    }
-  }
 }
