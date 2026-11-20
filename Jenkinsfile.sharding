@@ -122,7 +122,7 @@ pipeline {
                 unstash 'shard-3-report'
                 unstash 'shard-4-report'
 
-                sh 'npx playwright merge-reports --reporter html ./blob-report'
+                sh 'npx playwright merge-reports --config=playwright-merge.config.ts ./blob-report'
 
                 archiveArtifacts(
                     artifacts: 'playwright-report/**',
