@@ -1,0 +1,134 @@
+
+pipeline {
+    agent none
+
+    environment {
+        CI = 'true'
+    }
+
+    options {
+        timestamps()
+        skipDefaultCheckout(true)
+    }
+
+    stages {
+
+        stage('Playwright Sharding') {
+            parallel {
+
+                stage('Shard 1') {
+                    agent any
+                    steps {
+                        deleteDir()
+                        checkout scm
+
+                        sh 'node --version'
+                        sh 'npm --version'
+                        sh 'npm ci'
+                        sh 'npx playwright install chromium'
+
+                        catchError(
+                            buildResult: 'FAILURE',
+                            stageResult: 'FAILURE'
+                        ) {
+                            sh 'npx playwright test --shard=1/4'
+                        }
+
+                        stash name: 'shard-1-report',
+                            includes: 'blob-report/*.zip',
+                            allowEmpty: true
+                    }
+                }
+
+                stage('Shard 2') {
+                    agent any
+                    steps {
+                        deleteDir()
+                        checkout scm
+
+                        sh 'npm ci'
+                        sh 'npx playwright install chromium'
+
+                        catchError(
+                            buildResult: 'FAILURE',
+                            stageResult: 'FAILURE'
+                        ) {
+                            sh 'npx playwright test --shard=2/4'
+                        }
+
+                        stash name: 'shard-2-report',
+                            includes: 'blob-report/*.zip',
+                            allowEmpty: true
+                    }
+                }
+
+                stage('Shard 3') {
+                    agent any
+                    steps {
+                        deleteDir()
+                        checkout scm
+
+                        sh 'npm ci'
+                        sh 'npx playwright install chromium'
+
+                        catchError(
+                            buildResult: 'FAILURE',
+                            stageResult: 'FAILURE'
+                        ) {
+                            sh 'npx playwright test --shard=3/4'
+                        }
+
+                        stash name: 'shard-3-report',
+                            includes: 'blob-report/*.zip',
+                            allowEmpty: true
+                    }
+                }
+
+                stage('Shard 4') {
+                    agent any
+                    steps {
+                        deleteDir()
+                        checkout scm
+
+                        sh 'npm ci'
+                        sh 'npx playwright install chromium'
+
+                        catchError(
+                            buildResult: 'FAILURE',
+                            stageResult: 'FAILURE'
+                        ) {
+                            sh 'npx playwright test --shard=4/4'
+                        }
+
+                        stash name: 'shard-4-report',
+                            includes: 'blob-report/*.zip',
+                            allowEmpty: true
+                    }
+                }
+            }
+        }
+
+        stage('Merge Reports') {
+            agent any
+
+            steps {
+                deleteDir()
+                checkout scm
+
+                sh 'npm ci'
+
+                unstash 'shard-1-report'
+                unstash 'shard-2-report'
+                unstash 'shard-3-report'
+                unstash 'shard-4-report'
+
+                sh 'npx playwright merge-reports --reporter html ./blob-report'
+
+                archiveArtifacts(
+                    artifacts: 'playwright-report/**',
+                    allowEmptyArchive: false
+                )
+            }
+        }
+    }
+}

@@ -13,22 +13,23 @@ export default defineConfig({
 
   workers: process.env.CI ? 1 : undefined,
 
-  reporter: [
-    ["list"], // Detailed console output
+  reporter: process.env.CI ? 'blob' : 'html',
+  // reporter: [
+  //   ["list"], // Detailed console output
 
-    // ["line"], // One-line progress output
-    // ["dot"],  // Minimal console output
+  //   // ["line"], // One-line progress output
+  //   // ["dot"],  // Minimal console output
 
-    ["html", { open: "never", outputFolder: "reports" }], // HTML Report
+  //   ["html", { open: "never", outputFolder: "reports" }], // HTML Report
 
-    // ["json", { outputFile: "reports/results.json" }], // JSON Report
+  //   // ["json", { outputFile: "reports/results.json" }], // JSON Report
 
-    ["junit", { outputFile: "reports/results.xml" }], // JUnit XML Report
+  //   ["junit", { outputFile: "reports/results.xml" }], // JUnit XML Report
 
-    ["./utils/CustomReporter.ts"], // Custom reporter
+  //   ["./utils/CustomReporter.ts"], // Custom reporter
 
-    ["allure-playwright", { outputFolder: "allure-results" }], // Allure Report
-  ],
+  //   ["allure-playwright", { outputFolder: "allure-results" }], // Allure Report
+  // ],
 
   use: {
     trace: "on-first-retry",
@@ -37,7 +38,7 @@ export default defineConfig({
 
     video: "retain-on-failure",
 
-    headless: false,
+    headless: true,
 
     viewport: {
       width: 1280,
