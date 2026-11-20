@@ -28,7 +28,7 @@ test.describe('Authentication API Tests', () => {
             }
         });
 
-        expect(response.status()).toBe(200);
+        expect(response.status()).toBe(401);
 
         const responseBody = await response.json();
 
