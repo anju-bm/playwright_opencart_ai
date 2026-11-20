@@ -1,0 +1,200 @@
+// Jenkinsfile.multibranch
+// Declarative Jenkins pipeline for a Multibranch Pipeline job (macOS build agents).
+// Set "Script Path" in the Multibranch job to: Jenkinsfile.multibranch
+
+pipeline {
+    agent any   // change to: agent { label 'mac' } to pin to your mac agent(s)
+
+    tools {
+        nodejs 'nodejs'
+    }
+
+    options {
+        timestamps()
+        timeout(time: 60, unit: 'MINUTES')
+        disableConcurrentBuilds(abortPrevious: true)
+        buildDiscarder(logRotator(numToKeepStr: '15', artifactNumToKeepStr: '5'))
+    }
+
+    parameters {
+        choice(
+            name: 'TEST_SUITE',
+            choices: [
+                'test:e2e',
+                'test:master',
+                'test:sanity',
+                'test:regression',
+                'test:api',
+                'test:web',
+                'test:datadriven'
+            ],
+            description: 'Select the test suite to run (feature branches and PRs fall back to test:sanity if test:e2e is selected)'
+        )
+
+        choice(
+            name: 'BROWSER',
+            choices: ['chromium', 'firefox', 'webkit'],
+            description: 'Select the browser for tests'
+        )
+
+        choice(
+            name: 'MODE',
+            choices: ['headless', 'headed'],
+            description: 'Run tests in headless or headed mode'
+        )
+    }
+
+    environment {
+        NODE_ENV     = 'test'
+        CI           = '1'
+        NOTIFY_EMAIL = 'anjubm.official@gmail.com, shravanhd.official@gmail.com'
+        FROM_EMAIL   = 'anjubm.official@gmail.com'
+    }
+
+    stages {
+
+        stage('🔄 Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('📦 Install Dependencies') {
+            steps {
+                sh 'npm ci'
+            }
+        }
+
+        stage('🤖 Install Playwright Browsers & Dependencies') {
+            steps {
+                sh 'npx playwright install'
+
+                sh '''
+                    if [ ! -f .env ] && [ -f .env.example ]; then
+                        cp .env.example .env
+                    fi
+                '''
+            }
+        }
+
+        stage('▶️ Run Playwright Tests') {
+            steps {
+                script {
+                    def suite = params.TEST_SUITE
+                    def isMain = (env.BRANCH_NAME == 'main' || env.BRANCH_NAME == 'master')
+
+                    // Lighter default for feature branches and pull requests
+                    if (!isMain && suite == 'test:e2e') {
+                        suite = 'test:sanity'
+                        echo "Branch '${env.BRANCH_NAME}' is not main: using ${suite} instead of test:e2e"
+                    }
+
+                    def browserFlag = "--project=${params.BROWSER}"
+                    def modeFlag = params.MODE == 'headed' ? '--headed' : ''
+
+                    // Remember what actually ran, for the email
+                    env.EFFECTIVE_SUITE = suite
+
+                    sh "npm run ${suite} -- ${browserFlag} ${modeFlag}"
+                }
+            }
+        }
+    }
+
+    post {
+
+        always {
+            archiveArtifacts(
+                artifacts: 'reports/**,custom-report/**,allure-results/**',
+                allowEmptyArchive: true
+            )
+
+            junit(
+                testResults: 'reports/results.xml',
+                allowEmptyResults: true
+            )
+
+            allure(
+                includeProperties: false,
+                results: [[path: 'allure-results']]
+            )
+
+            publishHTML([
+                allowMissing: true,
+                alwaysLinkToLastBuild: true,
+                keepAll: true,
+                reportDir: 'reports',
+                reportFiles: 'index.html',
+                reportName: 'Playwright HTML Report'
+            ])
+
+            publishHTML([
+                allowMissing: true,
+                alwaysLinkToLastBuild: true,
+                keepAll: true,
+                reportDir: 'custom-report',
+                reportFiles: '*.html',
+                reportName: 'Custom Test Report'
+            ])
+        }
+
+        success {
+            script {
+                // Successful builds only email for main
+                if (env.BRANCH_NAME == 'main' || env.BRANCH_NAME == 'master') {
+                    sendReportEmail()
+                }
+            }
+            sh 'rm -rf allure-results'
+        }
+
+        failure {
+            script { sendReportEmail() }
+        }
+
+        unstable {
+            script { sendReportEmail() }
+        }
+
+        fixed {
+            script {
+                // A broken branch is green again (skip main, already covered by success)
+                if (env.BRANCH_NAME != 'main' && env.BRANCH_NAME != 'master') {
+                    sendReportEmail()
+                }
+            }
+        }
+    }
+}
+
+// Shared email helper
+def sendReportEmail() {
+    def prInfo = env.CHANGE_ID ? "PR #${env.CHANGE_ID} (target: ${env.CHANGE_TARGET})" : 'Branch build'
+    def suiteRan = env.EFFECTIVE_SUITE ?: params.TEST_SUITE
+
+    emailext(
+        subject: "Jenkins Build: ${env.JOB_NAME} #${env.BUILD_NUMBER} - ${currentBuild.currentResult}",
+
+        body: """
+            <h2>Playwright Test Execution Report</h2>
+            <p><b>Job:</b> ${env.JOB_NAME}</p>
+            <p><b>Branch:</b> ${env.BRANCH_NAME}</p>
+            <p><b>Type:</b> ${prInfo}</p>
+            <p><b>Build:</b> #${env.BUILD_NUMBER}</p>
+            <p><b>Status:</b> ${currentBuild.currentResult}</p>
+            <p><b>Test Suite:</b> ${suiteRan}</p>
+            <p><b>Browser:</b> ${params.BROWSER}</p>
+            <p><b>Mode:</b> ${params.MODE}</p>
+            <p>
+                <a href="${env.BUILD_URL}">Open Jenkins Build</a> |
+                <a href="${env.BUILD_URL}Playwright_20HTML_20Report">Open Playwright HTML Report</a> |
+                <a href="${env.BUILD_URL}Custom_20Test_20Report">Open Custom Report</a>
+            </p>
+        """,
+
+        to: env.NOTIFY_EMAIL,
+        from: env.FROM_EMAIL,
+        replyTo: env.FROM_EMAIL,
+        mimeType: 'text/html'
+    )
+}
